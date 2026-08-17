@@ -18,10 +18,11 @@ from typing import (
     List,
     Literal,
     Optional,
-    Self,
     Sequence,
     Union,
 )
+
+from typing_extensions import Self
 
 from ...proto.waE2E.WAWebProtobufsE2E_pb2 import (
     AIRichResponseMessage,

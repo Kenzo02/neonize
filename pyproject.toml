@@ -15,6 +15,7 @@ dependencies = [
     "requests>=2.32.3",
     "segno>=1.6.1",
     "tqdm>=4.67.1",
+    "typing-extensions>=4.0.0",
 ]
 [project.urls]
 HomePage = "https://github.com/krypton-byte/neonize"
