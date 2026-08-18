@@ -176,6 +176,7 @@ from ..proto.waMsgApplication.WAMsgApplication_pb2 import MessageApplication
 from ..types import MessageServerID, MessageWithContextInfo
 from ..utils import add_exif, gen_vcard, get_message_type, validate_link
 from ..utils.calc import AspectRatioMethod, auto_sticker, original_sticker
+from ..utils.device import get_default_device_props
 from ..utils.enum import (
     BlocklistAction,
     ChatPresence,
@@ -3360,7 +3361,7 @@ class NewAClient:
         _log_.debug("🔒 Attempting to connect to the WhatsApp servers.")
         # Set device properties
         deviceprops = (
-            DeviceProps(os="Neonize", platformType=DeviceProps.SAFARI)
+            get_default_device_props()
             if self.device_props is None
             else self.device_props
         ).SerializeToString()
