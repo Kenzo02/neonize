@@ -9,6 +9,7 @@ import time
 import traceback
 import typing
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
 from functools import partial
 from io import BytesIO
@@ -34,6 +35,11 @@ from ._binder import (
 )
 from .builder import build_edit, build_revoke
 from .events import Event, EventsManager, event as stop_event
+from .newsletter_media import (
+    build_newsletter_media_message,
+    parse_send_response,
+    prepare_newsletter_media,
+)
 from .exc import (
     BuildPollVoteCreationError,
     BuildPollVoteError,
@@ -582,6 +588,7 @@ class NewClient:
         ghost_mentions: Optional[str] = None,
         mentions_are_lids: bool = False,
         add_msg_secret: bool = False,
+        media_handle: Optional[str] = None,
     ) -> SendResponse:
         """Send a message to the specified JID.
 
@@ -622,16 +629,20 @@ class NewClient:
         if add_msg_secret:
             msg.messageContextInfo.messageSecret = urandom(32)
         message_bytes = msg.SerializeToString()
-        bytes_ptr = self.__client.SendMessage(
-            self.uuid, to_bytes, len(to_bytes), message_bytes, len(message_bytes)
-        )
-        protobytes = bytes_ptr.contents.get_bytes()
-        free_bytes(bytes_ptr)
-        model = SendMessageReturnFunction.FromString(protobytes)
-        if model.Error:
-            raise SendMessageError(model.Error)
-        model.SendResponse.MergeFrom(model.SendResponse.__class__(Message=msg))
-        return model.SendResponse
+        if media_handle is None:
+            bytes_ptr = self.__client.SendMessage(
+                self.uuid, to_bytes, len(to_bytes), message_bytes, len(message_bytes)
+            )
+        else:
+            bytes_ptr = self.__client.SendMessageWithMediaHandle(
+                self.uuid,
+                to_bytes,
+                len(to_bytes),
+                message_bytes,
+                len(message_bytes),
+                media_handle.encode(),
+            )
+        return parse_send_response(bytes_ptr, msg)
 
     def build_reply_message(
         self,
@@ -2721,6 +2732,50 @@ class NewClient:
         if model.Error:
             raise UploadError(model.Error)
         return model.UploadResponse
+
+    def send_newsletter_media(
+        self,
+        to: JID,
+        file: bytes,
+        media_kind: str,
+        media_type: str,
+        caption: str = "",
+        filename: str = "",
+    ) -> SendResponse:
+        """Upload newsletter media once and send it with its upload handle.
+
+        ``media_kind`` selects the WhatsApp message type while ``media_type`` is
+        the MIME type reported by the caller. The upload enum is derived from
+        the kind so callers cannot accidentally select an incompatible upload.
+        """
+        if to.Server != "newsletter":
+            raise ValueError("newsletter media requires a newsletter destination")
+        if not isinstance(file, bytes) or not file:
+            raise ValueError("newsletter media must be non-empty bytes")
+        if not isinstance(media_kind, str):
+            raise ValueError("newsletter media kind must be a string")
+        if not isinstance(media_type, str) or not media_type:
+            raise ValueError("newsletter media type must be a MIME string")
+        kind = media_kind.strip().lower()
+        upload_type = {
+            "image": MediaType.MediaImage,
+            "video": MediaType.MediaVideo,
+            "animation": MediaType.MediaVideo,
+            "audio": MediaType.MediaAudio,
+            "voice": MediaType.MediaAudio,
+            "document": MediaType.MediaDocument,
+            "sticker": MediaType.MediaImage,
+        }.get(kind)
+        if upload_type is None:
+            raise ValueError(f"unsupported newsletter media kind: {media_kind}")
+        prepared = prepare_newsletter_media(file, kind, upload_type)
+        if kind == "document":
+            prepared = replace(prepared, mimetype=media_type)
+        upload = self.upload_newsletter(prepared.data, prepared.media_type)
+        if not upload.Handle:
+            raise UploadError("newsletter upload response is missing Handle")
+        message = build_newsletter_media_message(prepared, upload, caption, filename)
+        return self.send_message(to, message, media_handle=upload.Handle)
 
     def create_group(
         self,

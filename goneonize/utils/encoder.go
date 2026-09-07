@@ -456,6 +456,9 @@ func EncodeBlocklist(blocklist *types.Blocklist) *defproto.Blocklist {
 }
 
 func EncodeNewsletterMessage(message *types.NewsletterMessage) *defproto.NewsletterMessage {
+	if message == nil {
+		return nil
+	}
 	reacts := []*defproto.Reaction{}
 	for react, count := range message.ReactionCounts {
 		reacts = append(reacts, &defproto.Reaction{
@@ -906,9 +909,11 @@ func EncodeNewsletterMuteChange(mute *events.NewsletterMuteChange) defproto.News
 }
 
 func EncodeNewsletterLiveUpdate(update *events.NewsletterLiveUpdate) defproto.NewsletterLiveUpdate {
-	messages := make([]*defproto.NewsletterMessage, len(update.Messages))
-	for i, message := range update.Messages {
-		messages[i] = EncodeNewsletterMessage(message)
+	messages := make([]*defproto.NewsletterMessage, 0, len(update.Messages))
+	for _, message := range update.Messages {
+		if encoded := EncodeNewsletterMessage(message); encoded != nil {
+			messages = append(messages, encoded)
+		}
 	}
 	return defproto.NewsletterLiveUpdate{
 		JID:      EncodeJidProto(update.JID),

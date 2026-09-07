@@ -457,6 +457,15 @@ func TestStruct() *C.struct_BytesReturn {
 
 //export SendMessage
 func SendMessage(id *C.char, JIDByte *C.uchar, JIDSize C.int, messageByte *C.uchar, messageSize C.int) *C.struct_BytesReturn {
+	return sendMessage(id, JIDByte, JIDSize, messageByte, messageSize, "", false)
+}
+
+//export SendMessageWithMediaHandle
+func SendMessageWithMediaHandle(id *C.char, JIDByte *C.uchar, JIDSize C.int, messageByte *C.uchar, messageSize C.int, mediaHandle *C.char) *C.struct_BytesReturn {
+	return sendMessage(id, JIDByte, JIDSize, messageByte, messageSize, C.GoString(mediaHandle), true)
+}
+
+func sendMessage(id *C.char, JIDByte *C.uchar, JIDSize C.int, messageByte *C.uchar, messageSize C.int, mediaHandle string, requireNewsletter bool) *C.struct_BytesReturn {
 	// fmt.Println("SendMessage: Getting client from ID")
 	client := clients[C.GoString(id)]
 	// fmt.Println("SendMessage: Getting JID byte array")
@@ -472,6 +481,17 @@ func SendMessage(id *C.char, JIDByte *C.uchar, JIDSize C.int, messageByte *C.uch
 		return_.Error = proto.String(err.Error())
 		return ProtoReturnV3(&return_)
 	}
+	decodedJID := utils.DecodeJidProto(&neonize_jid)
+	if requireNewsletter {
+		if decodedJID.Server != types.NewsletterServer {
+			return_.Error = proto.String("media handle is only valid for newsletter destinations")
+			return ProtoReturnV3(&return_)
+		}
+		if mediaHandle == "" {
+			return_.Error = proto.String("newsletter media handle is required")
+			return ProtoReturnV3(&return_)
+		}
+	}
 	// fmt.Println("SendMessage: Getting message byte array")
 	message_bytes := getByteByAddr(messageByte, messageSize)
 	// fmt.Println("SendMessage: Creating message variable")
@@ -484,10 +504,10 @@ func SendMessage(id *C.char, JIDByte *C.uchar, JIDSize C.int, messageByte *C.uch
 		return ProtoReturnV3(&return_)
 	}
 	// extra params
-	extra := whatsmeow.SendRequestExtra{}
-	extra.AdditionalNodes = GenerateWABinary(context.Background(), utils.DecodeJidProto(&neonize_jid), &message)
+	extra := whatsmeow.SendRequestExtra{MediaHandle: mediaHandle}
+	extra.AdditionalNodes = GenerateWABinary(context.Background(), decodedJID, &message)
 	// fmt.Println("SendMessage: Sending message to WhatsApp")
-	sendresponse, err := client.SendMessage(context.Background(), utils.DecodeJidProto(&neonize_jid), &message, extra)
+	sendresponse, err := client.SendMessage(context.Background(), decodedJID, &message, extra)
 	if err != nil {
 		fmt.Println("SendMessage: Error sending message:", err.Error())
 		return_.Error = proto.String(err.Error())
@@ -1675,9 +1695,11 @@ func GetNewsletterMessageUpdate(id *C.char, JIDByte *C.uchar, JIDSize C.int, Cou
 	}
 	NewsletterMessages := []*defproto.NewsletterMessage{}
 	for _, msg := range newsletterMessage {
-		NewsletterMessages = append(NewsletterMessages, utils.EncodeNewsletterMessage(msg))
+		if encoded := utils.EncodeNewsletterMessage(msg); encoded != nil {
+			NewsletterMessages = append(NewsletterMessages, encoded)
+		}
 	}
-	if newsletterMessage != nil {
+	if len(NewsletterMessages) > 0 {
 		return_.NewsletterMessage = NewsletterMessages
 	}
 	return ProtoReturnV3(&return_)
@@ -1702,9 +1724,11 @@ func GetNewsletterMessages(id *C.char, JIDByte *C.uchar, JIDSize C.int, Count C.
 	}
 	NewsletterMessages := []*defproto.NewsletterMessage{}
 	for _, msg := range newsletterMessage {
-		NewsletterMessages = append(NewsletterMessages, utils.EncodeNewsletterMessage(msg))
+		if encoded := utils.EncodeNewsletterMessage(msg); encoded != nil {
+			NewsletterMessages = append(NewsletterMessages, encoded)
+		}
 	}
-	if newsletterMessage != nil {
+	if len(NewsletterMessages) > 0 {
 		return_.NewsletterMessage = NewsletterMessages
 	}
 	return ProtoReturnV3(&return_)

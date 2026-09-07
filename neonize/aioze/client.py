@@ -43,6 +43,7 @@ from .._binder import (
     gocode,
 )
 from ..builder import build_edit, build_revoke
+from ..newsletter_media import parse_send_response
 from ..exc import (
     BuildPollVoteCreationError,
     BuildPollVoteError,
@@ -638,6 +639,7 @@ class NewAClient:
         ghost_mentions: Optional[str] = None,
         mentions_are_lids: bool = False,
         add_msg_secret: bool = False,
+        media_handle: Optional[str] = None,
     ) -> SendResponse:
         """Send a message to the specified JID.
 
@@ -681,16 +683,20 @@ class NewAClient:
             # https://github.com/tulir/whatsmeow/issues/509#issuecomment-1842732773
             msg.messageContextInfo.messageSecret = urandom(32)
         message_bytes = msg.SerializeToString()
-        bytes_ptr = await self.__client.SendMessage(
-            self.uuid, to_bytes, len(to_bytes), message_bytes, len(message_bytes)
-        )
-        protobytes = bytes_ptr.contents.get_bytes()
-        free_bytes(bytes_ptr)
-        model = SendMessageReturnFunction.FromString(protobytes)
-        if model.Error:
-            raise SendMessageError(model.Error)
-        model.SendResponse.MergeFrom(model.SendResponse.__class__(Message=msg))
-        return model.SendResponse
+        if media_handle is None:
+            bytes_ptr = await self.__client.SendMessage(
+                self.uuid, to_bytes, len(to_bytes), message_bytes, len(message_bytes)
+            )
+        else:
+            bytes_ptr = await self.__client.SendMessageWithMediaHandle(
+                self.uuid,
+                to_bytes,
+                len(to_bytes),
+                message_bytes,
+                len(message_bytes),
+                media_handle.encode(),
+            )
+        return parse_send_response(bytes_ptr, msg)
 
     async def build_reply_message(
         self,
