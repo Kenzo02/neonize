@@ -620,7 +620,7 @@ class NewClient:
                 preview = self._generate_link_preview(message)
                 if preview:
                     partial_msg.MergeFrom(preview)
-            if partial_msg.previewType is None and not (mentioned_groups or mentioned_jid):
+            if not partial_msg.HasField("previewType") and not (mentioned_groups or mentioned_jid):
                 msg = Message(conversation=message)
             else:
                 msg = Message(extendedTextMessage=partial_msg)
