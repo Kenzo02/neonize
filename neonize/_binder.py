@@ -19,6 +19,19 @@ func_callback_bytes = ctypes.CFUNCTYPE(
 func_callback_bytes2 = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_int)  # callback_bytes
 
 
+def bind_optional_file_uploads(library: Any) -> bool:
+    """Bind additive file-upload exports without breaking legacy binaries."""
+    upload_file = getattr(library, "UploadFile", None)
+    upload_newsletter_file = getattr(library, "UploadNewsletterFile", None)
+    if upload_file is None or upload_newsletter_file is None:
+        return False
+    upload_file.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    upload_file.restype = ctypes.POINTER(Bytes)
+    upload_newsletter_file.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    upload_newsletter_file.restype = ctypes.POINTER(Bytes)
+    return True
+
+
 def load_goneonize():
     last_error: Exception | None = None
     for _ in range(3):
@@ -159,6 +172,7 @@ if not os.environ.get("SPHINX"):
         ctypes.c_int,
     ]
     gocode.UploadNewsletter.restype = ctypes.POINTER(Bytes)
+    bind_optional_file_uploads(gocode)
     gocode.DownloadAny.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
     gocode.DownloadAny.restype = ctypes.POINTER(Bytes)
     gocode.DownloadMediaWithPath.argtypes = [

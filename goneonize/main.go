@@ -16,6 +16,8 @@ import (
 	// "crypto/sha256"
 	// "encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unsafe"
@@ -419,6 +421,50 @@ func UploadNewsletter(id *C.char, data *C.uchar, dataSize C.int, appInfo C.int) 
 		return_.Error = proto.String(err.Error())
 	}
 	return_.UploadResponse = utils.EncodeUploadResponse(upload)
+	return ProtoReturnV3(&return_)
+}
+
+//export UploadFile
+func UploadFile(id *C.char, path *C.char, mediaType C.int) *C.struct_BytesReturn {
+	return_ := defproto.UploadReturnFunction{}
+	mediaPath := C.GoString(path)
+	file, err := os.Open(mediaPath)
+	if err == nil {
+		defer file.Close()
+		var encryptedTemp *os.File
+		encryptedTemp, err = os.CreateTemp(filepath.Dir(mediaPath), ".neonize-upload-*")
+		if err == nil {
+			tempName := encryptedTemp.Name()
+			defer os.Remove(tempName)
+			defer encryptedTemp.Close()
+			var upload whatsmeow.UploadResponse
+			upload, err = clients[C.GoString(id)].UploadReader(
+				context.Background(), file, encryptedTemp, utils.MediaType[int(mediaType)],
+			)
+			return_.UploadResponse = utils.EncodeUploadResponse(upload)
+		}
+	}
+	if err != nil {
+		return_.Error = proto.String(err.Error())
+	}
+	return ProtoReturnV3(&return_)
+}
+
+//export UploadNewsletterFile
+func UploadNewsletterFile(id *C.char, path *C.char, mediaType C.int) *C.struct_BytesReturn {
+	return_ := defproto.UploadReturnFunction{}
+	file, err := os.Open(C.GoString(path))
+	if err == nil {
+		defer file.Close()
+		var upload whatsmeow.UploadResponse
+		upload, err = clients[C.GoString(id)].UploadNewsletterReader(
+			context.Background(), file, utils.MediaType[int(mediaType)],
+		)
+		return_.UploadResponse = utils.EncodeUploadResponse(upload)
+	}
+	if err != nil {
+		return_.Error = proto.String(err.Error())
+	}
 	return ProtoReturnV3(&return_)
 }
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import os
 
 import magic
 from google.protobuf.message import DecodeError
@@ -147,6 +148,45 @@ def prepare_newsletter_media(
         seconds=seconds,
         thumbnail=thumbnail,
         animated=animated,
+    )
+
+
+def prepare_newsletter_media_file(
+    path: str,
+    media_kind: str,
+    media_type: MediaType,
+    mimetype: str,
+) -> PreparedNewsletterMedia:
+    """Prepare metadata for a file-backed newsletter video or document."""
+    kind = media_kind.strip().lower()
+    if kind not in {"video", "document"}:
+        raise ValueError("file-backed newsletter media must be video or document")
+    expected_type = _MEDIA_TYPES[kind]
+    if media_type is not expected_type:
+        raise ValueError(
+            f"newsletter media kind {kind} requires {expected_type.name}, got {media_type.name}"
+        )
+    if not isinstance(path, str) or not os.path.isfile(path):
+        raise ValueError("newsletter media path must be a local regular file")
+    width = height = seconds = 0
+    thumbnail = b""
+    if kind == "video":
+        with FFmpeg(path) as ffmpeg:
+            info = ffmpeg.extract_info()
+            thumbnail = ffmpeg.extract_thumbnail()
+        video_stream = next((stream for stream in info.streams if stream.codec_type == "video"), None)
+        width = int(video_stream.width or 0) if video_stream else 0
+        height = int(video_stream.height or 0) if video_stream else 0
+        seconds = int(info.format.duration or 0)
+    return PreparedNewsletterMedia(
+        data=b"",
+        kind=kind,
+        media_type=media_type,
+        mimetype=mimetype,
+        width=width,
+        height=height,
+        seconds=seconds,
+        thumbnail=thumbnail,
     )
 
 

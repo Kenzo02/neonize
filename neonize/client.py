@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import ctypes
 import logging
+import os
 import re
 import struct
 import time
@@ -1367,6 +1368,45 @@ class NewClient:
             add_msg_secret=add_msg_secret,
         )
 
+    def send_video_file(
+        self,
+        to: JID,
+        path: str,
+        caption: Optional[str] = None,
+        quoted: Optional[neonize_proto.Message] = None,
+    ) -> SendResponse:
+        """Send a local video using the file-backed native upload path."""
+        if not isinstance(path, str) or not os.path.isfile(path):
+            raise ValueError("video path must be a local regular file")
+        with FFmpeg(path) as ffmpeg:
+            duration = int(ffmpeg.extract_info().format.duration)
+            thumbnail = ffmpeg.extract_thumbnail()
+        upload = self.upload_file(path, MediaType.MediaVideo)
+        message = Message(
+            videoMessage=VideoMessage(
+                URL=upload.url,
+                caption=caption,
+                seconds=duration,
+                directPath=upload.DirectPath,
+                fileEncSHA256=upload.FileEncSHA256,
+                fileLength=upload.FileLength,
+                fileSHA256=upload.FileSHA256,
+                mediaKey=upload.MediaKey,
+                mimetype=magic.from_file(path, mime=True),
+                JPEGThumbnail=thumbnail,
+                thumbnailDirectPath=upload.DirectPath,
+                thumbnailEncSHA256=upload.FileEncSHA256,
+                thumbnailSHA256=upload.FileSHA256,
+                contextInfo=ContextInfo(
+                    mentionedJID=self._parse_mention(caption),
+                    groupMentions=self._parse_group_mention(caption),
+                ),
+            )
+        )
+        if quoted:
+            message.videoMessage.contextInfo.MergeFrom(self._make_quoted_message(quoted))
+        return self.send_message(to, message)
+
     def build_image_message(
         self,
         file: str | bytes,
@@ -1761,6 +1801,38 @@ class NewClient:
             add_msg_secret=add_msg_secret,
         )
 
+    def send_document_file(
+        self,
+        to: JID,
+        path: str,
+        caption: Optional[str] = None,
+        filename: Optional[str] = None,
+        mimetype: Optional[str] = None,
+        quoted: Optional[neonize_proto.Message] = None,
+    ) -> SendResponse:
+        """Send a local document using the file-backed native upload path."""
+        upload = self.upload_file(path, MediaType.MediaDocument)
+        message = Message(
+            documentMessage=DocumentMessage(
+                URL=upload.url,
+                caption=caption,
+                directPath=upload.DirectPath,
+                fileEncSHA256=upload.FileEncSHA256,
+                fileLength=upload.FileLength,
+                fileSHA256=upload.FileSHA256,
+                mediaKey=upload.MediaKey,
+                mimetype=mimetype or magic.from_file(path, mime=True),
+                fileName=filename,
+                contextInfo=ContextInfo(
+                    mentionedJID=self._parse_mention(caption),
+                    groupMentions=self._parse_group_mention(caption),
+                ),
+            )
+        )
+        if quoted:
+            message.documentMessage.contextInfo.MergeFrom(self._make_quoted_message(quoted))
+        return self.send_message(to, message)
+
     def send_contact(
         self,
         to: JID,
@@ -1807,6 +1879,21 @@ class NewClient:
         else:
             mime = media_type
         bytes_ptr = self.__client.Upload(self.uuid, binary, len(binary), mime.value)
+        protobytes = bytes_ptr.contents.get_bytes()
+        free_bytes(bytes_ptr)
+        upload_model = UploadReturnFunction.FromString(protobytes)
+        if upload_model.Error:
+            raise UploadError(upload_model.Error)
+        return upload_model.UploadResponse
+
+    def upload_file(self, path: str, media_type: MediaType) -> UploadResponse:
+        """Upload a local regular file without copying it through ctypes."""
+        if not isinstance(path, str) or not os.path.isfile(path):
+            raise ValueError("upload path must be a local regular file")
+        upload_file = getattr(self.__client, "UploadFile", None)
+        if upload_file is None:
+            raise UploadError("native file upload capability is unavailable")
+        bytes_ptr = upload_file(self.uuid, os.fsencode(path), media_type.value)
         protobytes = bytes_ptr.contents.get_bytes()
         free_bytes(bytes_ptr)
         upload_model = UploadReturnFunction.FromString(protobytes)
@@ -2726,6 +2813,23 @@ class NewClient:
         :rtype: UploadResponse
         """
         bytes_ptr = self.__client.UploadNewsletter(self.uuid, data, len(data), media_type.value)
+        protobytes = bytes_ptr.contents.get_bytes()
+        free_bytes(bytes_ptr)
+        model = UploadReturnFunction.FromString(protobytes)
+        if model.Error:
+            raise UploadError(model.Error)
+        return model.UploadResponse
+
+    def upload_newsletter_file(self, path: str, media_type: MediaType) -> UploadResponse:
+        """Upload a local newsletter file through whatsmeow's reader API."""
+        if not isinstance(path, str) or not os.path.isfile(path):
+            raise ValueError("upload path must be a local regular file")
+        upload_newsletter_file = getattr(self.__client, "UploadNewsletterFile", None)
+        if upload_newsletter_file is None:
+            raise UploadError("native newsletter file upload capability is unavailable")
+        bytes_ptr = upload_newsletter_file(
+            self.uuid, os.fsencode(path), media_type.value
+        )
         protobytes = bytes_ptr.contents.get_bytes()
         free_bytes(bytes_ptr)
         model = UploadReturnFunction.FromString(protobytes)
